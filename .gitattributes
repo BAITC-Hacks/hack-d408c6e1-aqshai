@@ -1,0 +1,3 @@
+# Keep the Mac launcher runnable after checkout on either operating system.
+START_DEMO_MAC.command text eol=lf
+START_DEMO_WINDOWS.bat text eol=crlf
