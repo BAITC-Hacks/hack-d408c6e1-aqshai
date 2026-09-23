@@ -1,8 +1,8 @@
-# hack-d408c6e1-aqshai
+# Logix — hack-d408c6e1-aqshai
 
 Hackathon team repository for Aqshai
 
-SmartZakup is a purchasing assistant for Elektrokomplekt, built for HackAlem AI 2026. It calculates explainable replenishment recommendations for Systeme Electric and IEK using deterministic formulas, historical demand, stock, goods in transit and supplier order multiples. Managers review and approve orders before downloading Excel or CSV files for 1C; the app never sends orders to suppliers automatically.
+Logix is a purchasing assistant for Elektrokomplekt, built for HackAlem AI 2026. It calculates explainable replenishment recommendations for Systeme Electric and IEK using deterministic formulas, historical demand, stock, goods in transit and supplier order multiples. Managers review and approve orders before downloading Excel or CSV files for 1C; the app never sends orders to suppliers automatically.
 
 **For the jury:** run the existing app locally with `START_DEMO_WINDOWS.bat` (Windows) or `START_DEMO_MAC.command` (Mac). Python 3.10+ is required; dependencies are installed on first launch. No hosting, account or API key is needed for orders and analytics. [Быстрый запуск и сценарий демонстрации](#jury-demo).
 
@@ -10,7 +10,7 @@ SmartZakup is a purchasing assistant for Elektrokomplekt, built for HackAlem AI 
 
 Менеджеру закупок ТОО «Электрокомплект» нужно вовремя пополнять склад в Алматы, не замораживая деньги в избыточных запасах. Обычного среднего продаж недостаточно: сезонность меняет спрос, крупная разовая отгрузка завышает прогноз, а отсутствие товара на складе скрывает неудовлетворённый спрос. Данные о продажах, остатках, поставках и упаковках находятся в разных Excel-файлах.
 
-## Что делает SmartZakup
+## Что делает Logix
 
 Приложение объединяет данные по текстовому коду 1С и рассчитывает план заказа для **Systeme Electric (SE)** и **IEK**. Для каждого товара оно показывает количество, срочность, прогнозную дату исчерпания запаса и объяснение на русском языке.
 
@@ -230,17 +230,19 @@ python -c "import engine; data = engine.load_all(); plan, details = engine.build
 
 ## Скриншоты
 
+Скриншоты сделаны до переименования: прежнее название SmartZakup в них относится к тому же приложению Logix.
+
 ### Рекомендованный заказ
 
 Настройки расчёта, фильтры по поставщику и срочности, показатели закупок и таблица рекомендаций с объяснениями.
 
-![Рекомендованный заказ SmartZakup](docs/screenshots/order.png)
+![Рекомендованный заказ Logix](docs/screenshots/order.png)
 
 ### Аналитика
 
 Оценка избыточного запаса и потерянных продаж, число разовых заказов и динамика регулярного спроса по категории.
 
-![Аналитика SmartZakup](docs/screenshots/analytics.png)
+![Аналитика Logix](docs/screenshots/analytics.png)
 
 ## Как мы использовали Codex
 

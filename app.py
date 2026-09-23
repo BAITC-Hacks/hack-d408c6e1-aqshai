@@ -1,4 +1,4 @@
-"""SmartZakup: real-data ordering, checks and analytics."""
+"""Logix: real-data ordering, checks and analytics."""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -14,7 +14,7 @@ import streamlit as st
 import engine
 
 ROOT = Path(__file__).resolve().parent
-st.set_page_config(page_title="SmartZakup", page_icon="📦", layout="wide")
+st.set_page_config(page_title="Logix", page_icon="📦", layout="wide")
 st.html('<style>[class*="st-key-order_editor_"] button[aria-label="Download as CSV"] {display: none;}</style>')
 
 
@@ -126,7 +126,7 @@ def clear_approvals():
     st.session_state["order_revision"] += 1
 
 
-st.title("SmartZakup — план закупок")
+st.title("Logix — план закупок")
 st.warning("Заказ не отправляется поставщику без утверждения ответственного сотрудника")
 
 with st.sidebar:

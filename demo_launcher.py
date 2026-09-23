@@ -79,7 +79,7 @@ def main():
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
     url = "http://127.0.0.1:" + str(port)
-    print("\nSmartZakup demo: " + url, flush=True)
+    print("\nLogix demo: " + url, flush=True)
     print("Keep this window open. First calculation may take about a minute. Stop: Ctrl+C.", flush=True)
     process = subprocess.Popen([
         sys.executable, "-m", "streamlit", "run", str(ROOT / "app.py"),
