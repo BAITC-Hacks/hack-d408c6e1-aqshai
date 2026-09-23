@@ -1,4 +1,4 @@
-"""Streamlit interface for the Person 1 SmartZakup milestone."""
+"""SmartZakup: real-data ordering, checks and analytics."""
 
 from __future__ import annotations
 
@@ -9,6 +9,9 @@ import pandas as pd
 import streamlit as st
 
 import engine
+from export_manager_sheet import fill_manager_sheet
+from tab_checks import render_checks_tab
+from tab_analytics import render_analytics_tab
 
 
 st.set_page_config(page_title="SmartZakup", page_icon="📦", layout="wide")
@@ -198,33 +201,18 @@ with tab_order:
         "Заказ для 1С (CSV)", data=csv_data, file_name=f"zakaz_1c_{calculation_date:%Y%m%d}.csv",
         mime="text/csv", disabled=approved.empty,
     )
-    try:
-        from export_manager_sheet import fill_manager_sheet
-
-        manager_bytes = fill_manager_sheet("data/se_manager_sheet.xlsx", approved)
-        st.download_button(
-            "Лист менеджера SE", data=manager_bytes, file_name="se_manager_order.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            disabled=approved[approved["supplier"].eq("Systeme Electric")].empty,
-        )
-    except ImportError:
-        pass
+    manager_bytes = fill_manager_sheet("data/se_manager_sheet.xlsx", approved)
+    st.download_button(
+        "Лист менеджера SE", data=manager_bytes, file_name="se_manager_order.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        disabled=approved[approved["supplier"].eq("Systeme Electric")].empty,
+    )
 
 with tab_checks:
-    try:
-        from tab_checks import render_checks_tab
-
-        render_checks_tab(engine, data, settings, plan_df, details)
-    except ImportError:
-        st.info("Вкладка в разработке")
+    render_checks_tab(engine, data, settings, plan_df, details)
 
 with tab_analytics:
-    try:
-        from tab_analytics import render_analytics_tab
-
-        render_analytics_tab(engine, data, settings, plan_df, details)
-    except ImportError:
-        st.info("Вкладка в разработке")
+    render_analytics_tab(engine, data, settings, plan_df, details)
 
 with tab_ai:
     try:
