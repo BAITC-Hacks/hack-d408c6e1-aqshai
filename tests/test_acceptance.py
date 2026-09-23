@@ -7,8 +7,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-if not (ROOT / 'engine.py').is_file():
-    pytest.skip('Реальный engine.py ещё не добавлен Person 1; stub не используется.', allow_module_level=True)
 import engine
 
 @pytest.fixture(scope='module')

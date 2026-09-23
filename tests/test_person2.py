@@ -1,4 +1,4 @@
-"""Focused checks for Person 2's UI, fixture, KPIs and formula-preserving export."""
+"""Focused checks for the integrated UI, real engine, KPIs and formula-preserving export."""
 from datetime import date
 from io import BytesIO
 from pathlib import Path
@@ -12,46 +12,69 @@ from streamlit.testing.v1 import AppTest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import engine_stub
+import engine
 from export_manager_sheet import fill_manager_sheet
 from tab_analytics import _kpis
 
 
-def test_stub_contract_and_overrides():
-    data = engine_stub.load_all()
-    settings = engine_stub.Settings()
-    plan, details = engine_stub.build_plan(data, settings)
+@pytest.fixture(scope='module')
+def real_plan():
+    data = engine.load_all(str(ROOT/'data'))
+    settings = engine.Settings()
+    plan, details = engine.build_plan(data, settings)
+    return data, settings, plan, details
+
+
+def test_real_engine_contract_and_overrides(real_plan):
+    data, settings, plan, details = real_plan
     assert len(plan.columns) == 24
     assert plan['code'].map(type).eq(str).all()
-    row = plan.iloc[0]
-    after,_ = engine_stub.build_plan(data,settings,{'in_transit':{row.code:100000}})
-    assert after.set_index('code').loc[row.code,'qty'] == 0
+    row = plan.loc[plan['qty'].gt(0)].iloc[0]
+    after, _ = engine.build_plan(data, settings, {
+        'in_transit': {row.code: float(row.in_transit + row.qty)}})
+    assert after.set_index('code').loc[row.code, 'qty'] == 0
     for detail in details.values():
-        assert isinstance(detail['history'].index,pd.PeriodIndex)
+        assert isinstance(detail['history'].index, pd.PeriodIndex)
         assert len(detail['forecast']) == 12
         assert sum(detail['season_factors'])/12 == pytest.approx(1.)
 
 
-def test_preview_and_all_checks():
-    app = AppTest.from_file(str(ROOT/'app_preview.py'), default_timeout=60).run()
+def test_real_app_and_all_checks(monkeypatch):
+    monkeypatch.chdir(ROOT)
+    app = AppTest.from_file(str(ROOT/'app.py'), default_timeout=90).run()
     assert not app.exception
-    assert [tab.label for tab in app.tabs] == ['✅ Проверка','📊 Аналитика']
-    app.button(key='checks_all').click().run(timeout=60)
+    assert [tab.label for tab in app.tabs] == ['📦 Заказ', '✅ Проверка', '📊 Аналитика', '🤖 AI помощник']
+    download = next(b for b in app.get('download_button') if b.proto.label == 'Лист менеджера SE')
+    assert download.proto.disabled  # No unapproved order can be downloaded.
+    app.button(key='checks_all').click().run(timeout=90)
     assert not app.exception
     assert len(app.success) == 5, [x.value for x in app.error]
     assert not app.error
+    for result in app.success:
+        print(result.value)
+    # This exercises the real order-to-manager-export integration, not a mock.
+    next(b for b in app.button if b.label == 'Утвердить всё видимое').click().run(timeout=90)
+    assert not app.exception
+    download = next(b for b in app.get('download_button') if b.proto.label == 'Лист менеджера SE')
+    assert not download.proto.disabled
+    assert download.proto.url
 
 
 def test_analytics_kpis():
-    data = engine_stub.load_all()
-    plan, details = engine_stub.build_plan(data,engine_stub.Settings())
-    # Set a known stock surplus and ensure lost sales are priced, not counted twice.
-    plan['available'] = 1000.
-    excess,lost,count = _kpis(plan,details,date(2026,9,22))
-    expected = sum(max(0,1000-details[r.code]['forecast']['forecast'].head(3).sum())*r.price for r in plan.itertuples())
-    assert excess == pytest.approx(expected)
+    # Known inputs independently exercise money and 12-month boundary handling.
+    plan = pd.DataFrame([{'code': 'KPI', 'available': 1000., 'price': 1200.}])
+    details = {'KPI': {
+        'forecast': pd.DataFrame({'month': pd.period_range('2026-09', periods=12, freq='M'),
+                                  'forecast': [100., 200., 300.] + [100.]*9}),
+        'stockouts': pd.DataFrame({'month': [pd.Period(m, freq='M') for m in
+                                            ['2025-08','2025-09','2026-03','2026-06','2026-08','2026-09']],
+                                   'lost': [999.,80.,80.,80.,80.,999.]}),
+        'one_offs': pd.DataFrame({'qty': [500.,1000.]}),
+    }}
+    excess, lost, count = _kpis(plan, details, date(2026,9,22))
+    assert excess == pytest.approx((1000-100-200-300)*1200)
     assert lost == pytest.approx(4*80*1200)
-    assert count == 0
+    assert count == 2
 
 
 def test_manager_export_preserves_formulas_and_source():
