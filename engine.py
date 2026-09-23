@@ -276,7 +276,8 @@ def _load_moq(data_dir: Path, catalog: pd.DataFrame) -> pd.DataFrame:
         parts.append(frame[frame["code"].ne("")])
     result = pd.concat(parts, ignore_index=True).drop_duplicates(["supplier", "code"])
     fallback = catalog[["supplier", "code", "catalog_multiple"]].rename(columns={"catalog_multiple": "fallback"})
-    result = fallback.merge(result, on=["supplier", "code"], how="left")
+    # Keep MOQ rows for products absent from the manager/catalog as well.
+    result = fallback.merge(result, on=["supplier", "code"], how="outer")
     result["multiple"] = result["multiple"].fillna(result["fallback"]).fillna(1).clip(lower=1).astype(int)
     return result[["supplier", "code", "multiple"]]
 
@@ -309,6 +310,11 @@ def load_all(data_dir: str = "data") -> dict:
     stock_monthly = _cached_table(cache, "stock_monthly", stock_sources, lambda: _load_monthly(root, "stock"))
 
     catalog, manager = _load_catalog_and_manager(root)
+    invoice_units = invoices.groupby(["supplier", "code"])["unit"].first().to_dict()
+    catalog["unit"] = [
+        _text(row.unit) or invoice_units.get((row.supplier, row.code), "шт")
+        for row in catalog.itertuples()
+    ]
     in_transit = _load_transit(root, manager)
     moq = _load_moq(root, catalog)
     company_seasonality = _load_company_seasonality(root)
@@ -343,7 +349,8 @@ def _shape(values: pd.Series) -> np.ndarray:
 def _trim(values: pd.Series) -> np.ndarray:
     array = np.asarray(pd.Series(values).dropna(), dtype=float)
     if array.size >= 4:
-        return np.delete(array, [array.argmin(), array.argmax()])
+        # Sorting also removes TWO months when minimum and maximum are tied.
+        return np.sort(array)[1:-1]
     return array
 
 
@@ -445,6 +452,7 @@ def build_plan(data: dict, settings: Settings, overrides: dict | None = None) ->
     recent12 = pd.period_range("2025-09", "2026-08", freq="M")
     base_months = pd.period_range("2026-03", "2026-08", freq="M")
     prior_months = pd.period_range("2025-03", "2025-08", freq="M")
+    season_months = {year: pd.period_range(f"{year}-01", f"{year}-12", freq="M") for year in (2024, 2025)}
 
     def demand_value(supplier, code, month, cleaned=True):
         if month.year == 2024 or settings.demand_source == "monthly_report":
@@ -459,7 +467,7 @@ def build_plan(data: dict, settings: Settings, overrides: dict | None = None) ->
         yearly = []
         supplier_codes = catalog.loc[catalog["supplier"].eq(supplier), "code"]
         for year in [2024, 2025]:
-            values = [sum(demand_value(supplier, code, pd.Period(year=year, month=m, freq="M")) for code in supplier_codes) for m in range(1, 13)]
+            values = [sum(demand_value(supplier, code, month) for code in supplier_codes) for month in season_months[year]]
             yearly.append(_shape(values))
         units_shape = np.mean(yearly, axis=0)
         money_rows = company[company["supplier"].eq(supplier)] if not company.empty else pd.DataFrame()
@@ -474,7 +482,7 @@ def build_plan(data: dict, settings: Settings, overrides: dict | None = None) ->
         codes = catalog.loc[(catalog["supplier"].eq(supplier)) & (catalog["category"].eq(category)), "code"]
         yearly = []
         for year in [2024, 2025]:
-            values = [sum(demand_value(supplier, code, pd.Period(year=year, month=m, freq="M")) for code in codes) for m in range(1, 13)]
+            values = [sum(demand_value(supplier, code, month) for code in codes) for month in season_months[year]]
             yearly.append(_shape(values))
         category_factors[(supplier, category)] = _normalise_factors(np.mean(yearly, axis=0))
 
@@ -597,7 +605,7 @@ def build_plan(data: dict, settings: Settings, overrides: dict | None = None) ->
             do_not_reorder, stop_reason = True, "не продаётся / помечен !!! — вероятно выводится"
         elif supplier == "IEK" and _text(product.status).casefold() == "распродажа":
             do_not_reorder, stop_reason = True, "IEK выводит товар (распродажа)"
-        elif last6_sales <= 0:
+        elif last6_sales <= 0 and not any(row["month"] in base_months for row in stockout_rows):
             do_not_reorder, stop_reason = True, "нет продаж 6 мес"
         if do_not_reorder:
             qty = 0
@@ -615,18 +623,20 @@ def build_plan(data: dict, settings: Settings, overrides: dict | None = None) ->
 
         one_offs = one_off_frames.get((supplier, code), invoices.iloc[0:0])
         one_off_details = one_offs[["date", "doc", "qty", "typical_qty"]].reset_index(drop=True)
+        unit = _text(product.unit) or "шт"
         reason_parts = [
-            f"Регулярный спрос ≈ {base:,.0f} {_text(product.unit) or 'шт'}/мес (мар–авг 2026, без лучшего и худшего месяца).".replace(",", " ")
+            f"Регулярный спрос ≈ {base:,.0f} {unit}/мес (мар–авг 2026, без лучшего и худшего месяца).".replace(",", " ")
         ]
-        if not one_off_details.empty:
+        if settings.demand_source == "invoices" and not one_off_details.empty:
             item = one_off_details.sort_values("qty", ascending=False).iloc[0]
             reason_parts.append(
-                f"Исключён разовый заказ {item.qty:,.0f} шт (накл. {item.doc} от {item.date:%d.%m.%Y}, обычно {item.typical_qty:,.0f} шт).".replace(",", " ")
+                f"Исключён разовый заказ {item.qty:,.0f} {unit} (накл. {item.doc} от {item.date:%d.%m.%Y}, обычно {item.typical_qty:,.0f} {unit}).".replace(",", " ")
             )
         if stockout_rows:
             item = max(stockout_rows, key=lambda row: row["lost"])
+            correction = "поправка отключена" if overrides.get("disable_stockout_adjustment", False) else f"учтено {item['expected']:.0f}"
             reason_parts.append(
-                f"В {item['month'].strftime('%m.%Y')} был дефицит: продано {item['actual']:.0f} вместо ~{item['expected']:.0f} — учтено {item['expected']:.0f}."
+                f"В {item['month'].strftime('%m.%Y')} был дефицит: продано {item['actual']:.0f} вместо ~{item['expected']:.0f} — {correction}."
             )
         level_ru = {"product": "товара", "category": "категории", "supplier": "поставщика"}[season_level]
         reason_parts.append(f"Сезонность: текущий месяц ×{factors[settings.today.month - 1]:.2f} (уровень {level_ru}).")
@@ -639,8 +649,10 @@ def build_plan(data: dict, settings: Settings, overrides: dict | None = None) ->
         else:
             reason_parts.append(
                 f"Нужно на {window_days} дн. (поставка {lead} + до следующего заказа {settings.review_days[supplier]}): "
-                f"{window_demand:.0f} шт + страховой запас {safety_stock:.0f} шт. Есть {available:.0f} шт, в пути {in_transit:.0f} шт."
+                f"{window_demand:.0f} {unit} + страховой запас {safety_stock:.0f} {unit}. Есть {available:.0f} {unit}, в пути {in_transit:.0f} {unit}."
             )
+            if in_transit > 0 and next_arrival is not None:
+                reason_parts.append(f"Ближайшее поступление: {_reason_date(next_arrival)}.")
             if multiple > 1:
                 reason_parts.append(f"Округлено до кратности {multiple}.")
             if multiple == 305 and qty > 0:
